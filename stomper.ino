@@ -1,6 +1,18 @@
-#include <TimerOne.h>
-#include <Math.h>
+/***
+*       _____ _______ ____  __  __ _____  ______ _____
+*      / ____|__   __/ __ \|  \/  |  __ \|  ____|  __ \
+*     | (___    | | | |  | | \  / | |__) | |__  | |__) |
+*      \___ \   | | | |  | | |\/| |  ___/|  __| |  _  /
+*      ____) |  | | | |__| | |  | | |    | |____| | \ \
+*     |_____/   |_|  \____/|_|  |_|_|    |______|_|  \_\
+*
+*						***THX2112***
+*
+*					http://syinsi.com
+*
+*/
 
+// Pins:
 //int pwCurvePot=A0;
 int freqPot = A1;
 int durationPot = A2;
@@ -10,105 +22,157 @@ int ledPin = 3;
 int buttonPin = 5;
 int triggerPin = 8;
 int clockPulse = 0;
+int out = 9;
+
 int tempoValue;
 int potMap;
 int clockDivMult;
-unsigned long timeoutTimer = 0;
-unsigned long pulseTime = 0;
-unsigned long previousPulse = 0;
-unsigned long currentPulse = 0;
+int bounceTimer = 0;
+int lastBounceTime = 0;
+
+unsigned long timeoutTimer = 0;	//	microseconds
+unsigned long previousPulse = 0;	//	microseconds
+unsigned long currentPulse = 0;	//	microseconds
+unsigned long periodStartTime = 0;	//	microseconds
+unsigned long periodEndTime = 0;	//	microseconds
+unsigned long periodPW; // pulsewidth size in microseconds
+float startFreq = 0;
+float endFreq = 1000000;
 
 bool buttonState = 0;
 bool lastButtonState = 0;
 bool trigState = 0;
 bool lastTrigState = 0;
-bool playing;
-long lowFreq = 30000; //lowest frequency in microseconds 30,000 = 33.3 Hz
 
-int out = 9;
-float pulseWidth = 512;
-float duration = 100;
-float frequency = 20;
-float freqCurve;
-float pwCurve;
+
+unsigned long pulseWidth = 512;	// used later
+float duration;	//	milliseconds
+float frequency;	//	wavelength in microseconds
+float freqCurve;		//0-1
+unsigned long periodNow = 0;
 
 bool isHit = false;
 
 float beginTime;
-float endTime;
 float now;
-float duty;
-float period;
 
-boolean keyOn = false;
+
+// Testing Variables
+int PTLoopNumber = 0;
+unsigned long PTTimerResult = 0;
+unsigned long PTTimer = 0;
+unsigned long PTOldTimer = 0;
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//	Setup pins. Remember to tie unused pins high.
+//
 
 void setup()
 {
-	Timer1.initialize();
-	//Serial.begin(115200); 
+	//Serial.begin(115200);	//	For testing.
 	pinMode(ledPin, OUTPUT);
+	pinMode(out, OUTPUT);
 	pinMode(buttonPin, INPUT);
 	pinMode(triggerPin, INPUT);
-	playing = false;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+//
+//	This is it.
+//
 
-bool checkTrigger()
+void loop()
 {
-	//isHit=true;
 
-	buttonState = digitalRead(buttonPin);
+	checkTrigger();
 
-	if ((buttonState == LOW) && (lastButtonState == HIGH)) {
-		isHit = true;
-		lastButtonState = LOW;
+	if (isHit)
+	{
+		hitIt();
 	}
+}
 
-	// check if the pushbutton is pressed.
-	// if it is, the buttonState is HIGH:
-	if ((buttonState == HIGH) && (lastButtonState == LOW)) {
-		//isHit = false;
+///////////////////////////////////////////////////////////////////////////////
+//
+//	Time stuff. See if trigger is being hit...
+//
+
+void checkTrigger()
+{
+
+	//
+	//	First check if button is being pressed, and debounce. Could be done better.
+	//
+
+	buttonState = digitalRead(buttonPin); // Note that in this HW version button is externally tied high. This changes in future revs.
+
+	if ((buttonState == HIGH) && (lastButtonState == LOW))
+	{
 		lastButtonState = HIGH;
+		bounceTimer = millis() - lastBounceTime;
 	}
-	else {
-		//isHit=0;
-		//lastButtonState=0;
+
+	if ((buttonState == LOW) && (lastButtonState == HIGH))
+	{
+		lastButtonState = LOW;
+
+		if (bounceTimer >= 50)
+		{
+			isHit = true;
+			lastBounceTime = millis();
+		}
+		else {
+			lastBounceTime = millis();
+		}
 	}
+
+	//
+	//	Then check trigger.
+	//
 
 	trigState = digitalRead(triggerPin);
-
-
-
 	tempoValue = analogRead(tempoPot);
 
-	if ((trigState == HIGH) && (lastTrigState == LOW)) {
-		//clockPulse++;
+	if ((trigState == HIGH) && (lastTrigState == LOW))
+	{
 		currentPulse = millis();
 
 		if ((currentPulse - previousPulse) > 100)		//	Reset clock pulse if clock stops to start on the first clock
 		{
 			clockPulse = 0;
-
 		}
+
 		previousPulse = currentPulse;
 
-		if (clockPulse > 95) { clockPulse = 0; } //	Clocks start at zero.
+		if (clockPulse > 95)	//	Clocks start at zero.
+		{
+			clockPulse = 0;
+		}
 
+		//
+		//	Set division
+		//
 
 		potMap = map(tempoValue, 0, 1023, 0, 10);
-		if (potMap == 5) { clockDivMult = 12; } //	8th note -- default setting
-		if (potMap == 4) { clockDivMult = 6; } // 
-		if (potMap == 3) { clockDivMult = 4; } // 
-		if (potMap == 2) { clockDivMult = 3; } // 
-		if (potMap == 1) { clockDivMult = 2; } // 
-		if (potMap == 0) { clockDivMult = 1; } // 
-		if (potMap == 6) { clockDivMult = 24; } // 
-		if (potMap == 7) { clockDivMult = 32; } // 
-		if (potMap == 8) { clockDivMult = 48; } // 
-		if (potMap == 9) { clockDivMult = 60; } // 
-		if (potMap == 10) { clockDivMult = 96; } // 
 
-		if ((clockPulse % clockDivMult == 0))	// Trigger on every 8th pulse for eighth note sequence.&& (lastClock != clockPulse
+		if (potMap == 5) { clockDivMult = 12; } //	8th note -- default setting
+		if (potMap == 4) { clockDivMult = 6; }	//	16th notes
+		if (potMap == 3) { clockDivMult = 4; }	//	24	fast
+		if (potMap == 2) { clockDivMult = 3; }	//	32	fucking fast
+		if (potMap == 1) { clockDivMult = 2; }	//	64	something is going to break
+		if (potMap == 0) { clockDivMult = 1; }	//	96	every 24ppqm clock tick (may cause tiny black hole formations as time collapses upon itself.)
+		if (potMap == 6) { clockDivMult = 24; } //	4	quarter
+		if (potMap == 7) { clockDivMult = 32; } //	3	third
+		if (potMap == 8) { clockDivMult = 48; } //	2	half
+		if (potMap == 9) { clockDivMult = 64; } //	1.5	
+		if (potMap == 10) { clockDivMult = 96; }//	1	Every bar.
+
+		//
+		//	Check if it's time to send a hit
+		//
+
+		if ((clockPulse % clockDivMult == 0))
 		{
 			isHit = true;
 		}
@@ -117,176 +181,127 @@ bool checkTrigger()
 		clockPulse++;
 	}
 
-	if ((trigState == LOW) && (lastTrigState == HIGH)) {
-		//isHit = false;
+	if ((trigState == LOW) && (lastTrigState == HIGH))
+	{
 		lastTrigState = LOW;
 	}
 
-	if (isHit) { return true; }
+	//if (isHit)
+	//{
+	//	return true;
+	//}
 }
 
-
-
-
-
+///////////////////////////////////////////////////////////////////////////////
+//
+//	Audio stuff. Send the audio pulse.
+//
 
 void hitIt()
 {
-	isHit = false;
-	playing = true;
+	//
+	//	Start of the sound.
+	//
 
-	//Serial.println ("HIT"); 
+	isHit = false;	//	Reset.
+	//duration = map(analogRead(durationPot), 0, 1023, 50, 1000);		//	Milliseconds
+	//duration = analogRead(durationPot) + 50;		//	Milliseconds
+	duration = (.3 * 1000) * 1000; // seconds to milliseconds to microseconds
+	//startFreq = (analogRead(freqPot) * 960) + 16667; // need to keep frequency as period length (in micros) to avoid using floats. 2048
+	endFreq = 100; //Hz
+	beginTime = micros();
+	now = 0;
+	periodStartTime = micros();
 
-	duration = map(analogRead(durationPot), 0, 1023, 50, 1000);
+	//
+	//	Loop until the end of DURATION. This needs to loop really fast. 
+	//	Unfortunately it uses floats which severely impinges on performance
+	//	resulting in an aliasing effect at high frequencies. However this was the
+	//	best variant tried. Will keep trying...
+	//
 
-	beginTime = millis();
-	endTime = (beginTime + duration) - millis();
-	now = 1;
-	while (now < endTime){                                       // Loop until end of duration, 
+	while (now < duration)
+	{
 
+		//
+		//	Calculate the duration of each individual wavelength, taking into
+		//	consideration curvature -- which is why floats need to be used here.
+		//
 
-		now = (millis() - beginTime) + 1;                                        // milliseconds since start of loop
+		//PTTimer = micros();	//	Timing test.
+		startFreq = (analogRead(freqPot) * 2) + 10; // Hz
+		freqCurve = ((analogRead(freqCurvePot) / 1024.0) * 1.0) + 0.3; // make range between -1 and +1
+		//freqCurve = 1;
+		pulseWidth = 512; // Replace is analog reading later...
 
-		freqCurve = (((float((analogRead(freqCurvePot)) - 512) / 512)) * 10); // make range between -1 and +1
-		//pwCurve=  (((float((analogRead  (pwCurvePot))-512)/512))*10);
+		// MAGIC
+		frequency = (((now / duration) * (freqCurve * 10)) * ((1 / endFreq) * 1000000)) + ((1 / startFreq) * 1000000);
 
-		duration = map(analogRead(durationPot), 0, 1023, 50, 1000);      // Final duration 100 to 1000 ms milliseconds
+		periodNow = micros();
+		periodEndTime = periodStartTime + (frequency); // frequency/2 for 1/2 wave?
+		//periodPW = frequency / 2;
+		//
+		//	Toggle the output to create a square wave.
+		//
 
-		frequency = map(analogRead(freqPot), 0, 1023, 1000, lowFreq);         // Final frequency 100000 to 1000 us microseconds -- lowest to highest 
-		//frequency=fscale(0,1023,100000,10000,analogRead(freqPot),freqCurve);
-		pulseWidth = fscale(0, 1023, 512, 0, 256, pwCurve);
-		pulseWidth = 256;
-		//period=(frequency/(endTime/now));                                 // calculate frequency at current time 
-		period = ((fscale(1000, lowFreq, lowFreq, lowFreq, frequency, freqCurve)) / (endTime / now)) + frequency;
-
-		duty = (512 - pulseWidth / (endTime / now));
-
-		//      Serial.print ("  Duration: ");Serial.print (duration);
-		//      Serial.print ("  frequency: ");  Serial.print(frequency);
-		//      Serial.print ("  freqCurve: ");  Serial.print(freqCurve);
-		//      Serial.print("  endTime: ");Serial.print (endTime);  
-		//      Serial.print ("  period: ");Serial.print(period);
-		//      Serial.print ("  duty: ");Serial.print(duty);    
-		//      Serial.print("  now: ");Serial.println (now);  
-
-
-
-		Timer1.pwm(out, duty, period);                         // send square wave at proper pulse width and frequency.
-
-		analogWrite(ledPin, (duty / 4) + 512);                   // set BPM indictor LED
-
-		//if (checkTrigger()) { exit; }
-		checkTrigger();
-		if (isHit){ break; }
-	}
-
-	Timer1.pwm(out, 0, 0);                                         // at end of note shut off
-	analogWrite(ledPin, 0);
-	playing = false;
-	//if (isHit){ hitIt; } // play immediately if interrupted.
-	//delay(1000);        
-	// wait one second (for testing)
-
-}
-
-void loop()
-{
-	if (isHit){ hitIt; }
-
-	checkTrigger();
-
-	if (isHit) {
-
-		if (playing){
-			/*Timer1.pwm(out, 0, 0);
-			analogWrite(ledPin, 0);
-			playing = false;
-
-
-			duration = map(analogRead(durationPot), 0, 1023, 50, 1000);
-
-			beginTime = millis();
-			endTime = (beginTime + duration) - millis();
-			now = 1;*/
+		if (periodNow >= periodEndTime)
+		{
+			digitalWrite(out, !digitalRead(out));	//	Toggle output (half frequency).
+			periodStartTime = micros();				//	Register time waveform was made.
 		}
 
-		hitIt();
-	}
+		//
+		//	Flash LED at start of hit.
+		//
 
-}
+		if (now <= 100000)
+		{
+			analogWrite(ledPin, 254);
+		}
+		else
+		{
+			analogWrite(ledPin, 0);
+		}
 
+		//
+		//	Break out of loop if there's another hit.
+		//
 
-float fscale(float originalMin, float originalMax, float newBegin, float
-	newEnd, float inputValue, float curve){
+		checkTrigger();
 
-	float OriginalRange = 0;
-	float NewRange = 0;
-	float zeroRefCurVal = 0;
-	float normalizedCurVal = 0;
-	float rangedValue = 0;
-	boolean invFlag = 0;
+		if (isHit)
+		{
+			break;
+		}
 
+		//
+		//	End of fast wavelength loop -- a good place for timing tests.
+		//
 
-	// condition curve parameter
-	// limit range
+		now = (micros() - beginTime);	//	Register time for next run through.
 
-	if (curve > 10) curve = 10;
-	if (curve < -10) curve = -10;
-
-	curve = (curve * -.1); // - invert and scale - this seems more intuitive - postive numbers give more weight to high end on output 
-	curve = pow(10, curve); // convert linear scale into lograthimic exponent for other pow function
-
-	/*
-	Serial.println(curve * 100, DEC);   // multply by 100 to preserve resolution
-	Serial.println();
-	*/
-
-	// Check for out of range inputValues
-	if (inputValue < originalMin) {
-		inputValue = originalMin;
-	}
-	if (inputValue > originalMax) {
-		inputValue = originalMax;
-	}
-
-	// Zero Refference the values
-	OriginalRange = originalMax - originalMin;
-
-	if (newEnd > newBegin){
-		NewRange = newEnd - newBegin;
-	}
-	else
-	{
-		NewRange = newBegin - newEnd;
-		invFlag = 1;
-	}
-
-	zeroRefCurVal = inputValue - originalMin;
-	normalizedCurVal = zeroRefCurVal / OriginalRange;   // normalize to 0 - 1 float
-
-	/*
-	Serial.print(OriginalRange, DEC);
-	Serial.print("   ");
-	Serial.print(NewRange, DEC);
-	Serial.print("   ");
-	Serial.println(zeroRefCurVal, DEC);
-	Serial.println();
-	*/
-
-	// Check for originalMin > originalMax  - the math for all other cases i.e. negative numbers seems to work out fine 
-	if (originalMin > originalMax) {
-		return 0;
-	}
-
-	if (invFlag == 0){
-		rangedValue = (pow(normalizedCurVal, curve) * NewRange) + newBegin;
+		//Timing Tests:
+		/*PTLoopNumber = PTLoopNumber + 1;
+		PTOldTimer = micros();
+		PTTimerResult = PTTimerResult + (PTOldTimer - PTTimer);*/
 
 	}
-	else     // invert the ranges
-	{
-		rangedValue = newBegin - (pow(normalizedCurVal, curve) * NewRange);
-	}
 
-	return rangedValue;
+	//
+	//	Clean up at end of hit. Diagnostic code here.
+	//
+
+	analogWrite(ledPin, 0);
+	digitalWrite(out, LOW);
+
+	//Timing Tests:
+	/*Serial.print("Number: ");
+	Serial.print(PTLoopNumber);
+	Serial.print(" Average micros: ");
+	Serial.println((PTTimerResult / PTLoopNumber));
+	PTTimer = 0;
+	PTTimerResult = 0;
+	PTLoopNumber = 0;*/
+
 }
 
