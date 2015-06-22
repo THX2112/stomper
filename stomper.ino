@@ -12,6 +12,15 @@
 *
 */
 
+
+//#define FIXMATH_NO_CACHE
+
+
+#include <digitalWriteFast.h>
+//#include <fix16.h>
+
+
+
 // Pins:
 //int pwCurvePot=A0;
 int freqPot = A0;
@@ -20,9 +29,9 @@ int freqEndPot = A2;
 int durationPot = A3;
 int tempoPot = A4;
 int ledPin = 3;
+int gatePin = 4;
 int buttonPin = 5;
 int triggerPin = 8;
-int clockPulse = 7;			//	Wrong place?
 int clockPin = 7;
 int out = 9;
 
@@ -31,7 +40,10 @@ int potMap;
 int clockDivMult;
 int bounceTimer = 0;
 int lastBounceTime = 0;
+int clockPulse = 7;
+boolean done;
 
+boolean period = false;
 unsigned long timeoutTimer = 0;	//	microseconds
 unsigned long previousPulse = 0;	//	microseconds
 unsigned long currentPulse = 0;	//	microseconds
@@ -41,11 +53,15 @@ unsigned long periodPW; // pulsewidth size in microseconds
 float startFreq = 0;
 float endFreq = 1000000;
 
+unsigned long previousEndTime;
+
 bool buttonState = 0;
 bool lastButtonState = 0;
 bool trigState = 0;
 bool lastTrigState = 0;
-
+bool clockState = 0;
+bool lastClockState = 0;
+bool outState;
 
 unsigned long pulseWidth = 512;	// used later
 float duration;	//	microseconds
@@ -55,6 +71,7 @@ unsigned long periodNow = 0;
 
 bool isHit = false;
 bool ledLit = false;
+bool justHit = false;
 
 float beginTime;
 float now;
@@ -73,21 +90,26 @@ unsigned long PTOldTimer = 0;
 
 void setup()
 {
-	//	Serial.begin(115200);	//	For testing.
-	pinMode(ledPin, OUTPUT);
-	pinMode(out, OUTPUT);
-	pinMode(buttonPin, INPUT_PULLUP);
-	pinMode(triggerPin, INPUT);
-	pinMode(clockPin, INPUT);
+	Serial.begin(115200);	//	For testing.
+	pinModeFast(ledPin, OUTPUT);
+	pinModeFast(out, OUTPUT);
+	pinModeFast(buttonPin, INPUT_PULLUP);
+	pinModeFast(triggerPin, INPUT);
+	pinModeFast(clockPin, INPUT);
+	pinModeFast(gatePin, OUTPUT);
 
 	//	Unused pins tied high
 	pinMode(2, INPUT_PULLUP);
-	pinMode(4, INPUT_PULLUP);
 	pinMode(6, INPUT_PULLUP);
 	pinMode(10, INPUT_PULLUP);
 	pinMode(11, INPUT_PULLUP);
 	pinMode(12, INPUT_PULLUP);
 	pinMode(13, INPUT_PULLUP);
+
+	//	Flash LED
+	digitalWriteFast(ledPin, HIGH);
+	delay(20);
+	digitalWriteFast(ledPin, LOW);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -113,12 +135,13 @@ void loop()
 
 void checkTrigger()
 {
+	//Serial.println("hit");
 
 	//
 	//	First check if button is being pressed, and debounce. Could be done better.
 	//
 
-	buttonState = digitalRead(buttonPin);
+	buttonState = digitalReadFast(buttonPin);
 
 	if ((buttonState == HIGH) && (lastButtonState == LOW))
 	{
@@ -141,13 +164,12 @@ void checkTrigger()
 	}
 
 	//
-	//	Then check trigger.
+	//	Then check clock.
 	//
 
-	trigState = digitalRead(clockPin);
-	//trigState = digitalRead(triggerPin);					// Add this functionality later.
+	clockState = digitalReadFast(clockPin);
 
-	if ((trigState == HIGH) && (lastTrigState == LOW))
+	if ((clockState == HIGH) && (lastClockState == LOW))
 	{
 		currentPulse = millis();
 
@@ -190,10 +212,29 @@ void checkTrigger()
 		if ((clockPulse % clockDivMult == 0))
 		{
 			isHit = true;
+			justHit = true;
 		}
 
-		lastTrigState = HIGH;
+		lastClockState = HIGH;
 		clockPulse++;
+	}
+
+	if ((clockState == LOW) && (lastClockState == HIGH))
+	{
+		lastClockState = LOW;
+	}
+
+	//
+	//	Now check trigger.
+	//
+
+	trigState = digitalReadFast(triggerPin);
+
+	if ((trigState == HIGH) && (lastTrigState == LOW))
+	{
+		isHit = true;
+		justHit = true;
+		lastTrigState = HIGH;
 	}
 
 	if ((trigState == LOW) && (lastTrigState == HIGH))
@@ -214,11 +255,18 @@ void hitIt()
 	//	Start of the sound.
 	//
 
-	isHit = false;	//	Reset.
-	duration = (analogRead(durationPot) * 1000.0) + 100000.0;		//	Microseconds
+	digitalWriteFast(gatePin, HIGH);
+	digitalWriteFast(out, HIGH);		//	Start hit immediately -- catch up with calculations later.
+	outState = HIGH;
+	periodStartTime = micros();
+
 	beginTime = micros();
 	now = 0;
 	periodStartTime = micros();
+	period = LOW;
+	duration = (analogRead(durationPot) * 2000.0) + 100000.0;		//	Microseconds
+
+	isHit = false;
 
 	//
 	//	Loop until the end of DURATION set by pot. This needs to loop really fast. 
@@ -235,42 +283,65 @@ void hitIt()
 		//	consideration curvature -- which is why floats need to be used here.
 		//
 
-		duration = (analogRead(durationPot) * 2000.0) + 100000.0;		//	Microseconds
+
+		duration = (analogRead(durationPot) * 1000.0) + 100000.0;		//	Microseconds
 		startFreq = (analogRead(freqPot) * 2) + 200.0;					// 200 to 2246 Hz
 		freqCurve = ((analogRead(freqCurvePot) / 1023.0)) + .2;			// make range between 0 and +1 and adda bit for movement. 0 stands still, minus moves backwards.
 		endFreq = (analogRead(freqEndPot) / 4.0) + 20.0;				// 20 to 276 Hz
 
-		pulseWidth = 512; // TBD, maybe...
+		// MAGIC (period length in micros)
+		frequency = (((now / duration) * (freqCurve * 10.0)) * ((1.0 / endFreq) * 1000000.0)) + ((1.0 / startFreq) * 1000000.0); //period length in micros?
 
-		// MAGIC
-		frequency = (((now / duration) * (freqCurve * 10.0)) * ((1.0 / endFreq) * 1000000.0)) + ((1.0 / startFreq) * 1000000.0);
 
 		periodNow = micros();
-		periodEndTime = periodStartTime + (frequency); // frequency/2 for 1/2 wave?
+		unsigned long halfFreq = frequency / 2;
+
+		//unsigned long halfFreq = fix16_div(frequency, 2);
+
+		periodEndTime = periodStartTime + halfFreq;
 		//periodPW = frequency / 2;
 
 		//
 		//	Toggle the output to create a square wave.
 		//
 
-		if (periodNow >= periodEndTime)
+		if ((periodNow >= periodEndTime))
 		{
-			digitalWrite(out, !digitalRead(out));	//	Toggle output (half frequency).
+			if (outState == LOW)
+			{
+				if (now + halfFreq <= duration)	//	Prevent new period from starting if a new clock is going to be sent.
+				{
+					digitalWriteFast(out, HIGH);
+					outState = HIGH;
+				}
+				else
+				{
+					//do nothing
+				}
+			}
+
+			else if (outState == HIGH)
+			{
+				digitalWriteFast(out, LOW);
+				outState = LOW;
+			}
+
 			periodStartTime = micros();				//	Register time waveform was made.
+
 		}
 
 		//
-		//	Flash LED at start of hit. Vary brightness with period position?
+		//	Flash LED at start of hit. 
 		//
 
 		if (now <= 100000 && ledLit == false)
 		{
-			analogWrite(ledPin, 254);
+			digitalWriteFast(ledPin, HIGH);
 			ledLit = true;
 		}
 		else
 		{
-			analogWrite(ledPin, 0);
+			digitalWriteFast(ledPin, LOW);
 			ledLit = false;
 		}
 
@@ -291,6 +362,7 @@ void hitIt()
 
 		now = (micros() - beginTime);	//	Register time for next run through.
 
+
 		//Timing Tests:
 		/*PTLoopNumber = PTLoopNumber + 1;
 		PTOldTimer = micros();
@@ -302,8 +374,10 @@ void hitIt()
 	//	Clean up at end of hit. Diagnostic code here.
 	//
 
-	analogWrite(ledPin, 0);
-	digitalWrite(out, LOW);
+	digitalWriteFast(gatePin, LOW);
+	digitalWriteFast(ledPin, LOW);
+	digitalWriteFast(out, LOW);
+	period = LOW;
 
 	//Timing Tests:
 	/*Serial.print("Number: ");
