@@ -13,16 +13,11 @@
 */
 
 
-//#define FIXMATH_NO_CACHE
-
 
 #include <digitalWriteFast.h>
-//#include <fix16.h>
-
 
 
 // Pins:
-//int pwCurvePot=A0;
 int freqPot = A0;
 int freqCurvePot = A1;
 int freqEndPot = A2;
@@ -35,6 +30,8 @@ int triggerPin = 8;
 int clockPin = 7;
 int out = 9;
 
+//	Variables:
+
 int tempoValue;
 int potMap;
 int clockDivMult;
@@ -44,12 +41,12 @@ int clockPulse = 7;
 boolean done;
 
 boolean period = false;
-unsigned long timeoutTimer = 0;	//	microseconds
+unsigned long timeoutTimer = 0;		//	microseconds
 unsigned long previousPulse = 0;	//	microseconds
-unsigned long currentPulse = 0;	//	microseconds
+unsigned long currentPulse = 0;		//	microseconds
 unsigned long periodStartTime = 0;	//	microseconds
 unsigned long periodEndTime = 0;	//	microseconds
-unsigned long periodPW; // pulsewidth size in microseconds
+unsigned long periodPW;				//	pulsewidth size in microseconds
 float startFreq = 0;
 float endFreq = 1000000;
 
@@ -63,10 +60,10 @@ bool clockState = 0;
 bool lastClockState = 0;
 bool outState;
 
-unsigned long pulseWidth = 512;	// used later
-float duration;	//	microseconds
-float frequency;	//	wavelength in microseconds
-float freqCurve;		//0-1
+unsigned long pulseWidth = 512;		//	used later
+float duration;						//	microseconds
+float frequency;					//	wavelength in microseconds
+float freqCurve;					//	0-1
 unsigned long periodNow = 0;
 
 bool isHit = false;
@@ -77,12 +74,6 @@ float beginTime;
 float now;
 
 
-// Testing Variables
-int PTLoopNumber = 0;
-unsigned long PTTimerResult = 0;
-unsigned long PTTimer = 0;
-unsigned long PTOldTimer = 0;
-
 ///////////////////////////////////////////////////////////////////////////////
 //
 //	Setup pins.
@@ -90,7 +81,6 @@ unsigned long PTOldTimer = 0;
 
 void setup()
 {
-	Serial.begin(115200);	//	For testing.
 	pinModeFast(ledPin, OUTPUT);
 	pinModeFast(out, OUTPUT);
 	pinModeFast(buttonPin, INPUT_PULLUP);
@@ -135,8 +125,6 @@ void loop()
 
 void checkTrigger()
 {
-	//Serial.println("hit");
-
 	//
 	//	First check if button is being pressed, and debounce. Could be done better.
 	//
@@ -172,38 +160,40 @@ void checkTrigger()
 	if ((clockState == HIGH) && (lastClockState == LOW))
 	{
 		currentPulse = millis();
+		lastClockState = HIGH;
 
-		if ((currentPulse - previousPulse) > 100)		//	Reset clock pulse if clock stops to start on the first clock
+		if ((currentPulse - previousPulse) > 5000)	//	Reset clock pulse if clock stops to start on the first clock
 		{
 			clockPulse = 0;
 		}
 
 		previousPulse = currentPulse;
 
-		if (clockPulse > 95)	//	Clocks start at zero.
+		if (clockPulse > 96)						//	Clocks start at one.
 		{
-			clockPulse = 0;
+			clockPulse = 1;
 		}
 
 		//
-		//	Set division
+		//	Set division. Half of range for 24ppqn clock, other half for trigger division
 		//
 
 		tempoValue = analogRead(tempoPot);
 
-		potMap = map(tempoValue, 0, 1023, 8, 0);	// Reverse response of pot and map to X values
+		potMap = map(tempoValue, 0, 1023, 11, 0);	// Reverse response of pot and map to X values
 
-		if (potMap == 5) { clockDivMult = 12; } //	8th note -- default setting
-		if (potMap == 4) { clockDivMult = 6; }	//	16th notes
-		if (potMap == 3) { clockDivMult = 4; }	//	24	fast
-		if (potMap == 2) { clockDivMult = 3; }	//	32	fucking fast
-		if (potMap == 1) { clockDivMult = 2; }	//	64	something is going to break
-		if (potMap == 0) { clockDivMult = 1; }	//	96	every 24ppqm clock tick (may fracture spacetime.)
-		if (potMap == 6) { clockDivMult = 24; } //	4	quarter
-		//if (potMap == 7) { clockDivMult = 32; } //	3	third. Causes uneven beats due to retriggering at end of 96-tick bar. Fix? Could fix by doubling/quadrupling/etc 96-tick counter...
-		if (potMap == 7) { clockDivMult = 48; } //	2	half
-		//if (potMap == 9) { clockDivMult = 64; } //	1.5.	Causes uneven beats due to retriggering at end of 96-tick bar. Fix?
-		if (potMap == 8) { clockDivMult = 96; }//	1	Every bar.
+		if (potMap == 11) { clockDivMult = 96; }	//	1	Every bar @24ppqn
+		if (potMap == 10) { clockDivMult = 48; }	//	2	half	@24ppqn
+		if (potMap == 9) { clockDivMult = 24; }		//	4	quarter @24ppqn
+		if (potMap == 8) { clockDivMult = 16; }		//	6	@24ppqn
+		if (potMap == 7) { clockDivMult = 12; }		//	8th notes  @24ppqn
+		if (potMap == 6) { clockDivMult = 8; }		//	/8
+		if (potMap == 5) { clockDivMult = 6; }		//	/6
+		if (potMap == 4) { clockDivMult = 5; }		//	/5
+		if (potMap == 3) { clockDivMult = 4; }		//	/4
+		if (potMap == 2) { clockDivMult = 3; }		//	/3
+		if (potMap == 1) { clockDivMult = 2; }		//	/2
+		if (potMap == 0) { clockDivMult = 1; }		//	No Division
 
 		//
 		//	Check if it's time to send a hit
@@ -213,9 +203,9 @@ void checkTrigger()
 		{
 			isHit = true;
 			justHit = true;
+			clockPulse = 0;							// Restart clock if this is a new hit or timing changed.
 		}
 
-		lastClockState = HIGH;
 		clockPulse++;
 	}
 
@@ -235,6 +225,7 @@ void checkTrigger()
 		isHit = true;
 		justHit = true;
 		lastTrigState = HIGH;
+		clockPulse = 0;
 	}
 
 	if ((trigState == LOW) && (lastTrigState == HIGH))
@@ -256,7 +247,7 @@ void hitIt()
 	//
 
 	digitalWriteFast(gatePin, HIGH);
-	digitalWriteFast(out, HIGH);		//	Start hit immediately -- catch up with calculations later.
+	digitalWriteFast(out, HIGH);									//	Start hit immediately -- catch up with calculations later.
 	outState = HIGH;
 	periodStartTime = micros();
 
@@ -265,42 +256,34 @@ void hitIt()
 	periodStartTime = micros();
 	period = LOW;
 	duration = (analogRead(durationPot) * 2000.0) + 100000.0;		//	Microseconds
-
 	isHit = false;
+	unsigned long halfFreq;
+
+	//
+	//	Calculate the duration of each individual wavelength, taking into consideration curvature.
+	//	Can be put inside the next loop for faster response, but increases audio artifacts.
+	//
+
+	duration = (analogRead(durationPot) * 1000.0) + 100000.0;		//	Microseconds
+	startFreq = (analogRead(freqPot) * 2) + 200.0;					//	200 to 2246 Hz
+	freqCurve = ((analogRead(freqCurvePot) / 1023.0)) + .2;			//	make range between 0 and +1 and adda bit for movement. 0 stands still, minus moves backwards.
+	endFreq = (analogRead(freqEndPot) / 4.0) + 20.0;				//	20 to 276 Hz
 
 	//
 	//	Loop until the end of DURATION set by pot. This needs to loop really fast.
-	//	Unfortunately it uses floats which severely impinges upon performance
-	//	resulting in an aliasing effect at high frequencies. However this was the
-	//	best variant tried so far. Will keep trying...
+	//	Could be improved by replacing float math with fixed math.
 	//
 
 	while (now < duration)
 	{
+		//	When I wrote this, only God and I understood what I was doing.
+		//	Now, God only knows.
 
-		//
-		//	Calculate the duration of each individual wavelength, taking into
-		//	consideration curvature -- which is why floats need to be used here.
-		//
-
-
-		duration = (analogRead(durationPot) * 1000.0) + 100000.0;		//	Microseconds
-		startFreq = (analogRead(freqPot) * 2) + 200.0;					// 200 to 2246 Hz
-		freqCurve = ((analogRead(freqCurvePot) / 1023.0)) + .2;			// make range between 0 and +1 and adda bit for movement. 0 stands still, minus moves backwards.
-		endFreq = (analogRead(freqEndPot) / 4.0) + 20.0;				// 20 to 276 Hz
-
-		//When I wrote this, only God and I understood what I was doing
-		//Now, God only knows. (Period length in micros.)
-		frequency = (((now / duration) * (freqCurve * 10.0)) * ((1.0 / endFreq) * 1000000.0)) + ((1.0 / startFreq) * 1000000.0); //period length in micros?
-
+		frequency = (((now / duration) * (freqCurve * 10.0)) * ((1.0 / endFreq) * 1000000.0)) + ((1.0 / startFreq) * 1000000.0); //period length in micros
 
 		periodNow = micros();
-		unsigned long halfFreq = frequency / 2;
-
-		//unsigned long halfFreq = fix16_div(frequency, 2);
-
+		halfFreq = frequency / 2;
 		periodEndTime = periodStartTime + halfFreq;
-		//periodPW = frequency / 2;
 
 		//
 		//	Toggle the output to create a square wave.
@@ -310,7 +293,7 @@ void hitIt()
 		{
 			if (outState == LOW)
 			{
-				if (now + halfFreq <= duration)	//	Prevent new period from starting if a new clock is going to be sent.
+				if (now + halfFreq <= duration)			//	Prevent new period from starting if a new clock is going to be sent.
 				{
 					digitalWriteFast(out, HIGH);
 					outState = HIGH;
@@ -327,23 +310,20 @@ void hitIt()
 				outState = LOW;
 			}
 
-			periodStartTime = micros();				//	Register time waveform was made.
-
+			periodStartTime = micros();					//	Register time waveform was made.
 		}
 
 		//
-		//	Flash LED at start of hit.
+		//	Flash LED for 100ms at start of hit.
 		//
 
-		if (now <= 100000 && ledLit == false)
+		if (now <= 100000)	//
 		{
 			digitalWriteFast(ledPin, HIGH);
-			ledLit = true;
 		}
 		else
 		{
 			digitalWriteFast(ledPin, LOW);
-			ledLit = false;
 		}
 
 		//
@@ -361,13 +341,7 @@ void hitIt()
 		//	End of fast wavelength loop -- a good place for timing tests.
 		//
 
-		now = (micros() - beginTime);	//	Register time for next run through.
-
-
-		//Timing Tests:
-		/*PTLoopNumber = PTLoopNumber + 1;
-		PTOldTimer = micros();
-		PTTimerResult = PTTimerResult + (PTOldTimer - PTTimer);*/
+		now = (micros() - beginTime);					//	Register time for next run through.
 
 	}
 
@@ -379,15 +353,6 @@ void hitIt()
 	digitalWriteFast(ledPin, LOW);
 	digitalWriteFast(out, LOW);
 	period = LOW;
-
-	//Timing Tests:
-	/*Serial.print("Number: ");
-	Serial.print(PTLoopNumber);
-	Serial.print(" Average micros: ");
-	Serial.println((PTTimerResult / PTLoopNumber));
-	PTTimer = 0;
-	PTTimerResult = 0;
-	PTLoopNumber = 0;*/
 
 }
 
