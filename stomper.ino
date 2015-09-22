@@ -85,7 +85,7 @@ unsigned long PTOldTimer = 0;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-//	Setup pins.  
+//	Setup pins.
 //
 
 void setup()
@@ -202,7 +202,7 @@ void checkTrigger()
 		if (potMap == 6) { clockDivMult = 24; } //	4	quarter
 		//if (potMap == 7) { clockDivMult = 32; } //	3	third. Causes uneven beats due to retriggering at end of 96-tick bar. Fix? Could fix by doubling/quadrupling/etc 96-tick counter...
 		if (potMap == 7) { clockDivMult = 48; } //	2	half
-		//if (potMap == 9) { clockDivMult = 64; } //	1.5.	Causes uneven beats due to retriggering at end of 96-tick bar. Fix?	
+		//if (potMap == 9) { clockDivMult = 64; } //	1.5.	Causes uneven beats due to retriggering at end of 96-tick bar. Fix?
 		if (potMap == 8) { clockDivMult = 96; }//	1	Every bar.
 
 		//
@@ -269,7 +269,7 @@ void hitIt()
 	isHit = false;
 
 	//
-	//	Loop until the end of DURATION set by pot. This needs to loop really fast. 
+	//	Loop until the end of DURATION set by pot. This needs to loop really fast.
 	//	Unfortunately it uses floats which severely impinges upon performance
 	//	resulting in an aliasing effect at high frequencies. However this was the
 	//	best variant tried so far. Will keep trying...
@@ -289,7 +289,8 @@ void hitIt()
 		freqCurve = ((analogRead(freqCurvePot) / 1023.0)) + .2;			// make range between 0 and +1 and adda bit for movement. 0 stands still, minus moves backwards.
 		endFreq = (analogRead(freqEndPot) / 4.0) + 20.0;				// 20 to 276 Hz
 
-		// MAGIC (period length in micros)
+		//When I wrote this, only God and I understood what I was doing
+		//Now, God only knows. (Period length in micros.)
 		frequency = (((now / duration) * (freqCurve * 10.0)) * ((1.0 / endFreq) * 1000000.0)) + ((1.0 / startFreq) * 1000000.0); //period length in micros?
 
 
@@ -316,7 +317,7 @@ void hitIt()
 				}
 				else
 				{
-					//do nothing
+					//	do nothing
 				}
 			}
 
@@ -331,7 +332,7 @@ void hitIt()
 		}
 
 		//
-		//	Flash LED at start of hit. 
+		//	Flash LED at start of hit.
 		//
 
 		if (now <= 100000 && ledLit == false)
