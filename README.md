@@ -1,0 +1,3 @@
+# stomper
+Stomper eurorack module
+ 
