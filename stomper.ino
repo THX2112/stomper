@@ -10,6 +10,10 @@
 *
 *					http://syinsi.com
 *
+*
+*	4/26/2016	-	Cleaned up code for Clock Reset (was Trigger).
+*				-	Clock/Trigger only on D7, Clock Reset only on D8.
+*
 */
 
 
@@ -25,7 +29,7 @@ int tempoPot = A4;
 int ledPin = 3;
 int gatePin = 4;
 int buttonPin = 5;
-int triggerPin = 8;
+int resetPin = 8;
 int clockPin = 7;
 int out = 9;
 
@@ -53,8 +57,8 @@ unsigned long previousEndTime;
 
 bool buttonState = 0;
 bool lastButtonState = 0;
-bool trigState = 0;
-bool lastTrigState = 0;
+bool resetState = 0;
+bool lastResetState = 0;
 bool clockState = 0;
 bool lastClockState = 0;
 bool outState;
@@ -83,7 +87,7 @@ void setup()
 	pinModeFast(ledPin, OUTPUT);
 	pinModeFast(out, OUTPUT);
 	pinModeFast(buttonPin, INPUT_PULLUP);
-	pinModeFast(triggerPin, INPUT);
+	pinModeFast(resetPin, INPUT);
 	pinModeFast(clockPin, INPUT);
 	pinModeFast(gatePin, OUTPUT);
 
@@ -151,7 +155,24 @@ void checkTrigger()
 	}
 
 	//
-	//	Then check clock.
+	//	Reset clock if resetPin pulled high.
+	//
+
+	resetState = digitalReadFast(resetPin);
+
+	if ((resetState == HIGH) && (lastResetState == LOW))
+		{
+			lastResetState = HIGH;
+			clockPulse = 0;
+		}
+
+	if ((resetState == LOW) && (lastResetState == HIGH))
+	{
+		lastResetState = LOW;
+	}
+
+	//
+	//	Check clock/trigger.
 	//
 
 	clockState = digitalReadFast(clockPin);
@@ -192,7 +213,7 @@ void checkTrigger()
 		if (potMap == 3) { clockDivMult = 4; }		//	/4
 		if (potMap == 2) { clockDivMult = 3; }		//	/3
 		if (potMap == 1) { clockDivMult = 2; }		//	/2
-		if (potMap == 0) { clockDivMult = 1; }		//	No Division
+		if (potMap == 0) { clockDivMult = 1; }		//	No Division. Each input triggers a hit, so acts as a regular trigger.
 
 		//
 		//	Check if it's time to send a hit
@@ -212,26 +233,6 @@ void checkTrigger()
 	{
 		lastClockState = LOW;
 	}
-
-	//
-	//	Now check trigger.
-	//
-
-	trigState = digitalReadFast(triggerPin);
-
-	if ((trigState == HIGH) && (lastTrigState == LOW))
-	{
-		isHit = true;
-		justHit = true;
-		lastTrigState = HIGH;
-		clockPulse = 0;
-	}
-
-	if ((trigState == LOW) && (lastTrigState == HIGH))
-	{
-		lastTrigState = LOW;
-	}
-
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -265,7 +266,7 @@ void hitIt()
 
 	duration = (analogRead(durationPot) * 1000.0) + 100000.0;		//	Microseconds
 	startFreq = (analogRead(freqPot) * 2) + 200.0;					//	200 to 2246 Hz
-	freqCurve = ((analogRead(freqCurvePot) / 1023.0)) + .2;			//	make range between 0 and +1 and adda bit for movement. 0 stands still, minus moves backwards.
+	freqCurve = ((analogRead(freqCurvePot) / 1023.0)) + .2;			//	make range between 0 and +1 and add a bit for movement. 0 stands still, minus moves backwards.
 	endFreq = (analogRead(freqEndPot) / 4.0) + 20.0;				//	20 to 276 Hz
 
 	//
